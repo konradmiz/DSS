@@ -1,21 +1,25 @@
 library(tibble)
 library(dplyr)
 
-source("C:/Users/Konrad/Downloads/broken.stick.R")
+simulation_scheduler()
+source("C:/Users/Konrad/Desktop/Discrete Systems Simulation R Code/DSS-Simulation/Trips Function.R")
 
-hubs_capacity <- c(1,1,1,1)
+#start_time <- Sys.time()
 
-hubs_list <- c("A", "B", "C", "D")
-hubs_prob <- c(0.25, 0.2, 0.35, 0.2)
+simulation_scheduler <- function()
+{
+  set_simulation_parameters()
+  arrivals <<- arrival_calculator(duration, mean_arrival)
+  arrivals <<- trips_calculator()
+  arrivals <<- prepare_hub_capacity()
+  arrivals <<- balk_calculator()
+}
 
-
-
-#scheduler <- function()
-#{
-#  arrival_calculator()
-#  trips_calculator()
-#}
-
+set_simulation_parameters <- function()
+{
+  duration <<- 1080
+  mean_arrival <<- 2
+}
 
 arrival_calculator <- function(duration, mean, sd = NA)
 {
@@ -28,7 +32,7 @@ arrival_calculator <- function(duration, mean, sd = NA)
   while (current_time <= duration)
   {
     next_arrival <- rexp(1, rate = 1/mean)
-    next_hub <- sample(hubs_list, 1, prob = hubs_prob)
+    next_hub <- sample(hubs_data$Name, 1, prob = hubs_data$Prop)
 
     current_time <- current_time + next_arrival
     if (current_time <= duration)
@@ -49,24 +53,19 @@ arrival_calculator <- function(duration, mean, sd = NA)
   }
 }
 
-arrivals <- arrival_calculator(100, 10)
 
-trips_calculator <- function(arrivals)
+trips_calculator <- function()
 {
-  
-  hub_combinations <- length(hubs_list)^2
-  trip_probabilities <- broken.stick(hub_combinations)
-
-  trips_matrix <- matrix(trip_probabilities[, 2], nrow = length(hubs_list), ncol = length(hubs_list))
-  dimnames(trips_matrix) <- list(hubs_list, hubs_list)
   arrivals$`End Hub` <- NA
   arrivals$`End Time` <- NA
   arrivals$Duration <- NA
+  arrivals$Balk <- FALSE
   
   for (i in 1:nrow(arrivals))
   {
     start_hub <- arrivals$`Start Hub`[i]
-    trip_possibilities <- tibble(`End Hub` = hubs_list, Probability = trips_matrix[start_hub, ])
+    prob_list <- as.vector(t(trips_matrix[start_hub, ]))
+    trip_possibilities <- tibble(`End Hub` = colnames(trips_matrix), Probability = prob_list)
     
     end_hub <- sample(trip_possibilities$`End Hub`, 1, prob = trip_possibilities$Probability)
     
@@ -79,57 +78,57 @@ trips_calculator <- function(arrivals)
   
   return(arrivals)
 }
-arrivals <- trips_calculator(arrivals)
 
+prepare_hub_capacity <- function()
+{
+  #hubs_capacity_data <- tibble(Name = hubs_data$Name, Capacity = rep(0, nrow(hubs_data)))
+  #hubs_capacity_data <- data.frame(t(hubs_capacity_data), stringsAsFactors = FALSE)
+  
+  hubs_capacity_data <- data.frame(t(hubs_data$Name), stringsAsFactors = FALSE)
+  
+  colnames(hubs_capacity_data) <- hubs_capacity_data[1, ]
+  hubs_capacity_data <- hubs_capacity_data[-1, ]
+  hubs_capacity_data[2:nrow(arrivals), ] <- 0
+  
+  hubs_capacity_data <- sapply(hubs_capacity_data, as.numeric)
+  
+  arrivals <- cbind(arrivals, hubs_capacity_data)
+  #hubs_capacity <- rep(4, nrow(hubs_data))
+  arrivals <- rbind(c(0, NA, NA, 0, 0, FALSE, hubs_data$capacity), arrivals)
+  return(arrivals)
+}
 
-arrivals$A <- NA
-arrivals$B <- NA
-arrivals$C <- NA
-arrivals$D <- NA
-arrivals$Balk <- FALSE
-arrivals <- rbind(0, arrivals)
-arrivals[1, 6:9] <- hubs_capacity
-arrivals[-1, 6:9] <- 0
-
-balk_calculator <- function(arrivals)
+balk_calculator <- function()
 {
   for (i in 2:nrow(arrivals))
   {
     leave_hub <- arrivals$`Start Hub`[i]
     end_hub <- arrivals$`End Hub`[i]
-
-    if (arrivals[i-1, leave_hub] == 0)
+    
+    if (arrivals[(i-1), leave_hub] == 0)
     {
       arrivals$Balk[i] <- TRUE
-      arrivals[i, 6:9] <- arrivals[i-1, 6:9]
-      
+      arrivals[i, 7:ncol(arrivals)] <- arrivals[i-1, 7:ncol(arrivals)]
+    } else {
+      arrivals$Balk[i] <- FALSE
     }
-    
+
     if (arrivals$Balk[i] == FALSE)
     {
       if (leave_hub != end_hub)
       {
-        arrivals[i, leave_hub] <- arrivals[i-1, leave_hub] - 1
-        arrivals[i, end_hub] <- arrivals[i-1, end_hub] + 1
+        arrivals[i, leave_hub] <- arrivals[(i-1), leave_hub] - 1
+        arrivals[i, end_hub] <- arrivals[(i-1), end_hub] + 1
         
-        arrivals[i, setdiff(colnames(arrivals)[6:9], c(leave_hub, end_hub))] <- 
-          arrivals[i-1, setdiff(colnames(arrivals)[6:9], c(leave_hub, end_hub))] 
+        arrivals[i, setdiff(colnames(arrivals)[7:ncol(arrivals)], c(leave_hub, end_hub))] <- 
+          arrivals[(i-1), setdiff(colnames(arrivals)[7:ncol(arrivals)], c(leave_hub, end_hub))] 
         
       } else
       {
-        arrivals[i, 6:9] <- arrivals[(i-1), 6:9]
+        arrivals[i, 7:ncol(arrivals)] <- arrivals[(i-1), 7:ncol(arrivals)]
       }
     }
    
   }
-  
-  
-  
   return(arrivals)
-  
-  
 }
-
-#times <- round(arrivals$`Start Time`, 4)
-#time_cuts <- cut(100, times)
-arrivals <- balk_calculator(arrivals)
